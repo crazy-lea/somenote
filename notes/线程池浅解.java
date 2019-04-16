@@ -83,6 +83,8 @@
                 new ScheduledThreadPoolExecutor.DelayedWorkQueue());
     }
 
+	DelayedWorkQueue()：ScheduledThreadPoolExecutor内部实现的一种优先级队列 
+	具体可以参考：https://www.jianshu.com/p/587901245c95
     //(了解)ScheduledExecutorService extends ExecutorService
 	//ScheduledExecutorService(interface)的主要作用就是可以将定时任务与线程池功能结合使用,其内部只有四个方法
 
