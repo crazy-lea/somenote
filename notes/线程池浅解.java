@@ -55,7 +55,7 @@
          * DelegatedExecutorService类是Executors的一个静态内部类，职责：一个包装类（代理类），用来仅暴露ExecutorService实现类中的ExecutorService的方法
          * FinalizableDelegatedExecutorService继承DelegatedExecutorService类并增加了一个finalize方法，
          * finalize方法会在虚拟机利用垃圾回收清理对象时被调用，换言之，FinalizableDelegatedExecutorService的实例
-         * 即使不手动调用shutdown方法关闭现称池，虚拟机也会帮你完成此任务，不过从严谨的角度出发，
+         * 即使不手动调用shutdown方法关闭线程池，虚拟机也会帮你完成此任务，不过从严谨的角度出发，
          * 我们还是应该手动调用shutdown方法，毕竟Java的finalize不是C++的析构函数，必定会被调用，
          * Java虚拟机不保证finalize一定能被正确调用，因此我们不应该依赖于它。
          * 允许请求的队列长度为 Integer.MAX_VALUE,可能堆积大量的请求，从而导致OOM。
