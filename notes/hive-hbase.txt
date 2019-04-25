@@ -1,0 +1,125 @@
+hive0.90与hbase0.92是兼容的
+早期的hive版本与hbase0.89/0.90兼容
+当然上面的版本除非很早的时候用。
+hive1.x与hbase0.98.x或则更低版本是兼容的。
+hive2.x与hbase1.x及比hbase1.x更高版本兼容
+
+如果想hbase1.x与hive1.x整合，需要编译hive1.x stream 代码本身
+典型案例（HBase版本 1.3.1与Hive版本 1.2.1）
+
+可以兼容的话，将hive的lib目录下的hive-hbase-handler.jar 拷贝或者软连接到hbase的lib目录下
+export HBASE_HOME=/opt/module/hbase
+export HIVE_HOME=/opt/module/hive
+ln -s $HIVE_HOME/lib/hive-hbase-handler.jar $HBASE_HOME/lib/hive-hbase-handler
+软连接之后可以通过scp或者rsync将该文件或者lib目录发往集群中其他主机，重启hbase集群
+
+使两者连接是通过zookeeper来完成的
+需要在hive-site.xml中修改zookeeper的属性，如下：
+<property>
+  <name>hive.zookeeper.quorum</name>
+  <value>cdh1,cdh2,cdh3</value>
+  <description>The list of ZooKeeper servers to talk to. This is only needed for read/write locks.</description>
+</property>
+<property>
+  <name>hive.zookeeper.client.port</name>
+  <value>2181</value>
+  <description>The port of ZooKeeper servers to talk to. This is only needed for read/write locks.</description>
+</property>
+
+操作中可能碰到不能读写，用户错误等permission denied问题，可以考虑使用下面的命令
+sudo -u hdfs(用户) hadoop fs -chmod +w /(hdfs需要修改权限的目录)
+或者在hdfs-site.xml加上或修改该属性为false
+<property>
+    <name>dfs.permissions</name>
+	<value>false</value>
+</property>
+
+HBase版本 1.3.1与Hive版本 1.2.1
+环境准备
+export HBASE_HOME=/home/admin/modules/hbase-1.3.1
+export HIVE_HOME=/home/admin/modules/apache-hive-1.2.2-bin
+$ ln -s $HBASE_HOME/lib/hbase-common-1.3.1.jar $HIVE_HOME/lib/hbase-common-1.3.1.jar
+$ ln -s $HBASE_HOME/lib/hbase-server-1.3.1.jar $HIVE_HOME/lib/hbase-server-1.3.1.jar
+$ ln -s $HBASE_HOME/lib/hbase-client-1.3.1.jar $HIVE_HOME/lib/hbase-client-1.3.1.jar
+$ ln -s $HBASE_HOME/lib/hbase-protocol-1.3.1.jar$HIVE_HOME/lib/hbase-protocol-1.3.1.jar
+$ ln -s $HBASE_HOME/lib/hbase-it-1.3.1.jar $HIVE_HOME/lib/hbase-it-1.3.1.jar
+$ ln -s $HBASE_HOME/lib/htrace-core-3.1.0-incubating.jar$HIVE_HOME/lib/htrace-core-3.1.0-incubating.jar
+$ ln -s $HBASE_HOME/lib/hbase-hadoop2-compat-1.3.1.jar$HIVE_HOME/lib/hbase-hadoop2-compat-1.3.1.jar
+$ ln -s $HBASE_HOME/lib/hbase-hadoop-compat-1.3.1.jar$HIVE_HOME/lib/hbase-hadoop-compat-1.3.1.jar
+关联表时出现问题的话，编译源码
+
+ps:
+1.对于hive-hbase关联的表，不能进行属性修改，会报如下错误
+SemanticException [Error 10134]: ALTER TABLE cannot be used for a non-native table key_later
+同时也不能进行清空操作
+SemanticException [Error 10146]: Cannot truncate non-managed table key_later.
+2.hive-hbase的外部表不能直接创建，需要hbase中已存在该表才可以
+3.在hbase中对表进行删除的话,hive表不会删除，但是查询会报
+Failed with exception java.io.IOException:org.apache.hadoop.hbase.TableNotFoundException: key_later
+4.如果建立管理表的话，就算hbase中没有相关表也会生成表，但是在hive中可以对该表进行删除（hive和hbase的表数据都消失）
+5.对于hive-hbase关联表不能使用load data...方式导入数据，会报
+FAILED: SemanticException [Error 10101]: A non-native table cannot be used as target for LOAD
+因此如果想使用本地或者hdfs数据生成表 应该先创建临时表导入数据，再用insert into table xx select ... from 的方式
+6.hive-hbase关联表创建的时候不能使用as select的方式直接向表中导入数据，会报如下错误：
+SemanticException [Error 10065]: CREATE TABLE AS SELECT command cannot specify the list of columns for the target table
+
+
+关联后操作
+一：Hive关联Hbase
+(1) 在Hive中创建表同时关联HBase
+CREATE TABLE hive_hbase_user_table(
+area string,
+city string,
+email string,
+id bigint,
+name string,
+province string,
+sex string,
+tel bigint)
+STORED BY 'org.apache.hadoop.hive.hbase.HBaseStorageHandler'
+WITH SERDEPROPERTIES ("hbase.columns.mapping" = "cf:area,cf:city,cf:email,:key,cf:name,cf:province,cf:sex,cf:tel")
+TBLPROPERTIES ("hbase.table.name" = "hbase_hive_user_table");
+提示：完成之后，可以分别进入Hive和HBase查看，都生成了对应的表，serdeproperties中":key"为固定格式，用于指定hbase中的rowkey
+tblproperites用于指定hbase生成的表名
+(2) 在Hive中创建临时中间表，用于load文件中的数据
+提示：不能将数据直接load进Hive所关联HBase的那张表中
+CREATE TABLE tmp(
+area string,
+city string,
+email string,
+id bigint,
+name string,
+province string,
+sex string,
+tel bigint)
+row format delimited fields terminated by '\t';
+(3) 向Hive中间表中load数据
+hive (hbase)> load data inpath '/tmp/data/tmp.txt' into table tmp;
+(4) 通过insert命令将中间表中的数据导入到Hive关联HBase的那张表中
+hive (hbase)> insert into table hive_hbase_user_table select * from tmp;
+(5) 查看Hive以及关联的HBase表中是否已经成功的同步插入了数据
+Hive：
+hive (hbase)> select * from hive_hbase_user_table;
+HBase：
+hbase(main):026:0> scan "hbase_hive_user_table"
+二：Hbase关联Hive
+目标：在HBase中已经存储了某一张表SUNJW01.TEST_HBASE，然后在Hive中创建一个外部表来关联HBase中的SUNJW01.TEST_HBASE这张表，
+使之可以借助Hive来分析HBase这张表中的数据。
+(1) 在Hive中创建外部表
+CREATE EXTERNAL TABLE user_info (
+area string,
+city string,
+email string,
+id bigint,
+name string,
+province string,
+sex string,
+tel bigint
+) STORED BY 'org.apache.hadoop.hive.hbase.HBaseStorageHandler'
+WITH SERDEPROPERTIES ("hbase.columns.mapping" = "cf:AREA,cf:CITY,cf:EMAIL,:key,cf:NAME,cf:PROVINCE,cf:SEX,cf:TEL")
+TBLPROPERTIES ("hbase.table.name" = "SUNJW01.TEST_HBASE");
+(2) 关联后就可以使用Hive函数进行一些分析操作了
+hive (hbase)> select * from relevance_hbase_user limit 20;
+
+
+
